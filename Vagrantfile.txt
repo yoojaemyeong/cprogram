@@ -1,0 +1,50 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+Vagrant.configure("2") do |config|
+  #vagrant허브에서 이미지 가져오기 및 네트워크 환경
+  config.vm.box = "bento/ubuntu-22.04"
+  config.vm.network "private_network", ip: "192.168.5.10"
+  config.vm.network "forwarded_port", guest: 8888, host: 60888,auto_correct:true,id:"http"
+  config.vm.host_name = "cprogram"
+  # 호스트와 게시트간 폴더 공유
+  config.vm.synced_folder "c:\\cprogram-학생이름", "/home/vagrant/SharedProjects"
+  #[게스트]VM 하드웨어 사양 
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "cprogram_학생이름"
+    vb.gui = true
+    vb.cpus = 2
+    vb.memory = 2048
+
+    vb.customize ["modifyvm",:id,"--groups","/UbuntuGroup"]
+  end
+  #[게스트]VM 초기 설치환경
+  #vagrant에서 npm install 에러(보안상 shared folder에 대해 symbolic link 지원안함) 대처: npm --no-bin-links 
+  config.vm.provision "shell", inline: <<-SHELL
+     mkdir /home/vagrant/SharedProjects
+     apt-get -y update 
+     apt-get -y upgrade 
+     sudo apt-get install -y apt-transport-https ca-certificates gnupg-agent software-properties-common
+     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+     sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" -y
+     sudo apt-get update -y
+     sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+     sudo usermod -aG docker vagrant
+     sudo chmod 666 /var/run/docker.sock
+     echo -n '#!/usr/bin/env bash 
+     apt-get -y update
+     sudo --user=jovyan pip install jupyterlab     
+     sudo --user=jovyan conda install -c conda-forge jupyterlab jupyterlab-git
+     sudo --user=jovyan pip install jupyter-cpp-kernel
+     ln -s /workspace /home/jovyan/workspace
+     chmod -R 777 /workspace
+    chown -R jovyan:users /workspace' > /home/vagrant/SharedProjects/addperm.sh
+     echo -n '#!/usr/bin/env bash 
+TOKEN=$(docker exec -i jupyter jupyter lab list | tail -1 | cut -d: -f3)
+TOKEN2=$(echo  $TOKEN | cut -d= -f2)
+echo "http://localhost:60888/?token=$TOKEN2" > /home/vagrant/SharedProjects/TOKEN_URL.txt' > /home/vagrant/SharedProjects/jupyter-info.sh  
+     chmod 755 /home/vagrant/SharedProjects/jupyter-info.sh
+     docker run -itd -e GRANT_SUDO=yes -e TZ=Asia/Seoul --user root --name jupyter -v /etc/localtime:/etc/localtime:ro -v /home/vagrant/SharedProjects:/workspace -p 8888:8888 --restart=always jupyter/datascience-notebook
+     docker exec -i jupyter sh /workspace/addperm.sh     
+     sh /home/vagrant/SharedProjects/jupyter-info.sh
+  SHELL
+end
